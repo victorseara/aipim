@@ -1,0 +1,21 @@
+# Build output
+/dist/
+/aipim
+*.test
+
+# Local config / IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/coverage.out
+
+# Goreleaser
+/dist-snapshot/

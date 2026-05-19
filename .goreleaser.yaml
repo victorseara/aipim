@@ -1,0 +1,72 @@
+# goreleaser config for aipim
+# Run `goreleaser release --snapshot --clean` to test locally.
+# Requires goreleaser >= 2.0.
+
+version: 2
+
+project_name: aipim
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: aipim
+    main: .
+    binary: aipim
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/victorseara/aipim/cmd.Version={{.Version}}
+      - -X github.com/victorseara/aipim/cmd.Commit={{.ShortCommit}}
+      - -X github.com/victorseara/aipim/cmd.Date={{.Date}}
+
+archives:
+  - id: default
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+
+checksum:
+  name_template: "checksums.txt"
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-snapshot"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^chore:"
+      - "^test:"
+
+# Uncomment and configure when a Homebrew tap repo exists.
+#
+# brews:
+#   - name: aipim
+#     repository:
+#       owner: victorseara
+#       name: homebrew-tap
+#     homepage: https://github.com/victorseara/aipim
+#     description: Profile manager for AI coding agents
+#     license: MIT
+#     install: |
+#       bin.install "aipim"
+#       generate_completions_from_executable(bin/"aipim", "completion")
