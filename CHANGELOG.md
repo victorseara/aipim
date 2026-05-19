@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- GitHub Actions `CI` workflow (vet + build + race tests on push and PR).
+- GitHub Actions `Release` workflow — tag-triggered goreleaser run that publishes linux/darwin × amd64/arm64 tarballs to GitHub Releases. Users can install without Go.
+- `aipim shortcuts` (alias `keys`) — prints the TUI keymap; supports `--json` and `--quiet`. The TUI help overlay and this command share a single source of truth so the docs never drift.
+- "(recommended)" hint and top placement for Claude Code in the agent picker; the default selection on first run is now Claude Code.
+- Unit tests for the `cmd/` package: `list`, `delete`, `agent` flows (table / JSON / quiet / errors / exit codes).
 - `aipim list` / `aipim ls` — table, `--json`, and `--quiet` output modes.
 - `aipim get <name>` (alias `show`) — full single-profile detail with `--json`.
 - `aipim edit <name>` — CLI patch flags (`--alias`, `--clear-alias`, `--agent`, `--path`, `--description`) plus TUI fallback.

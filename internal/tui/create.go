@@ -392,10 +392,20 @@ func ConfirmConfigReset(loadErr error) (bool, error) {
 	return reset, nil
 }
 
+// recommendedAgent is the agent surfaced first and labelled "(recommended)" in
+// the onboarding/create flows. It reduces decision paralysis for first-time users.
+const recommendedAgent = "Claude Code"
+
 func selectAgentName(title, description string, agents []agent.Agent, allowCustom bool, current string) (string, error) {
-	options := make([]huh.Option[string], 0, len(agents)+1)
-	for _, configuredAgent := range agents {
-		options = append(options, huh.NewOption(configuredAgent.Name+"  ("+configuredAgent.LaunchCmd+")", configuredAgent.Name))
+	ordered := orderAgentsForPicker(agents)
+
+	options := make([]huh.Option[string], 0, len(ordered)+1)
+	for _, configuredAgent := range ordered {
+		label := configuredAgent.Name + "  (" + configuredAgent.LaunchCmd + ")"
+		if strings.EqualFold(strings.TrimSpace(configuredAgent.Name), recommendedAgent) {
+			label += "  (recommended)"
+		}
+		options = append(options, huh.NewOption(label, configuredAgent.Name))
 	}
 	if allowCustom {
 		options = append(options, huh.NewOption("Register custom agent…", customAgentOption))
@@ -404,6 +414,9 @@ func selectAgentName(title, description string, agents []agent.Agent, allowCusto
 	}
 
 	selected := strings.TrimSpace(current)
+	if selected == "" {
+		selected = recommendedAgent
+	}
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
@@ -418,6 +431,26 @@ func selectAgentName(title, description string, agents []agent.Agent, allowCusto
 	}
 
 	return selected, nil
+}
+
+// orderAgentsForPicker puts the recommended agent first, then the other built-ins
+// in their original order, then custom agents. Preserves the input's relative ordering
+// otherwise so users don't see their agents jump around.
+func orderAgentsForPicker(agents []agent.Agent) []agent.Agent {
+	ordered := make([]agent.Agent, 0, len(agents))
+	for _, a := range agents {
+		if strings.EqualFold(strings.TrimSpace(a.Name), recommendedAgent) {
+			ordered = append(ordered, a)
+			break
+		}
+	}
+	for _, a := range agents {
+		if strings.EqualFold(strings.TrimSpace(a.Name), recommendedAgent) {
+			continue
+		}
+		ordered = append(ordered, a)
+	}
+	return ordered
 }
 
 func promptCustomAgent() (agent.Agent, error) {

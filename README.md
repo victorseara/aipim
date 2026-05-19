@@ -9,11 +9,28 @@ It works two ways:
 
 ## Install
 
+**Pre-built binary (no Go required):**
+
+```bash
+# Linux/macOS, amd64 or arm64
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+VERSION=$(curl -s https://api.github.com/repos/victorseara/aipim/releases/latest | grep tag_name | cut -d '"' -f 4)
+curl -L "https://github.com/victorseara/aipim/releases/download/${VERSION}/aipim_${VERSION#v}_${OS}_${ARCH}.tar.gz" \
+  | tar -xz -C /tmp aipim
+sudo mv /tmp/aipim /usr/local/bin/
+aipim --version
+```
+
+Or pick the right archive manually from the [releases page](https://github.com/victorseara/aipim/releases).
+
+**With Go:**
+
 ```bash
 go install github.com/victorseara/aipim@latest
 ```
 
-Or build locally:
+**From source:**
 
 ```bash
 git clone https://github.com/victorseara/aipim && cd aipim
@@ -53,6 +70,7 @@ aipim launch -p work -- -p "verbatim agent args after --"
 | `aipim agent rm <name>` | Remove a custom agent | — |
 | `aipim agent default <name>` | Set the default agent | — |
 | `aipim completion <shell>` | Generate shell completions | `bash`, `zsh`, `fish`, `powershell` |
+| `aipim shortcuts` (alias `keys`) | Print the TUI keyboard shortcuts | `--json`, `--quiet` |
 | `aipim --version` | Print version, commit, build date | — |
 
 ### Global flags

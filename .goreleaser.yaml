@@ -1,5 +1,6 @@
 # goreleaser config for aipim
-# Run `goreleaser release --snapshot --clean` to test locally.
+# Local snapshot: `goreleaser release --snapshot --clean`
+# Local check:    `goreleaser check`
 # Requires goreleaser >= 2.0.
 
 version: 2
@@ -34,9 +35,8 @@ archives:
   - id: default
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
-    format_overrides:
-      - goos: windows
-        format: zip
+    formats:
+      - tar.gz
     files:
       - LICENSE
       - README.md
@@ -46,18 +46,52 @@ checksum:
   name_template: "checksums.txt"
 
 snapshot:
-  name_template: "{{ incpatch .Version }}-snapshot"
+  version_template: "{{ incpatch .Version }}-snapshot"
 
 changelog:
   use: github
   sort: asc
+  groups:
+    - title: Features
+      regexp: "^.*feat[(\\w)]*:+.*$"
+      order: 0
+    - title: Bug fixes
+      regexp: "^.*fix[(\\w)]*:+.*$"
+      order: 1
+    - title: Other
+      order: 999
   filters:
     exclude:
       - "^docs:"
       - "^chore:"
       - "^test:"
+      - "^ci:"
 
-# Uncomment and configure when a Homebrew tap repo exists.
+release:
+  github:
+    owner: victorseara
+    name: aipim
+  draft: false
+  prerelease: auto
+  header: |
+    ## aipim {{ .Tag }}
+
+    Download the appropriate binary for your platform below.
+
+    **Quick install (curl):**
+    ```bash
+    curl -L https://github.com/victorseara/aipim/releases/download/{{ .Tag }}/aipim_{{ trimprefix .Tag "v" }}_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz | tar xz
+    sudo mv aipim /usr/local/bin/
+    ```
+
+    **Or with Go:**
+    ```bash
+    go install github.com/victorseara/aipim@{{ .Tag }}
+    ```
+  footer: |
+    **Full Changelog:** https://github.com/victorseara/aipim/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+# Uncomment when a Homebrew tap repo exists.
 #
 # brews:
 #   - name: aipim

@@ -245,20 +245,10 @@ func footerLegend(width int) string {
 
 // helpOverlay returns the full keymap, rendered inside a styled panel.
 func helpOverlay() string {
-	rows := []struct{ key, desc string }{
-		{"enter", "launch the highlighted profile"},
-		{"n", "create a new profile"},
-		{"e", "edit the highlighted profile"},
-		{"d", "delete the highlighted profile"},
-		{"s", "open settings (agents, default agent)"},
-		{"↑/↓", "move the selection"},
-		{"?", "toggle this help overlay"},
-		{"q / ctrl+c", "quit"},
-	}
 	var b strings.Builder
 	b.WriteString("Keyboard shortcuts\n\n")
-	for _, r := range rows {
-		b.WriteString(fmt.Sprintf("  %-12s %s\n", r.key, r.desc))
+	for _, r := range Shortcuts() {
+		b.WriteString(fmt.Sprintf("  %-12s %s\n", r.Keys, r.Description))
 	}
 	b.WriteString("\nFor scriptable usage, run `aipim --help` from the shell.")
 	return panelStyle.Render(b.String())

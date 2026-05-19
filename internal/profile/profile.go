@@ -37,6 +37,8 @@ var reservedIdentifiers = map[string]bool{
 	"delete":     true,
 	"agent":      true,
 	"version":    true,
+	"shortcuts":  true,
+	"keys":       true,
 }
 
 // ValidateName validates a proposed profile name against the existing profiles.
