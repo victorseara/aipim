@@ -17,9 +17,14 @@ const (
 
 // ExitError carries a process exit code alongside its error.
 // main.go unwraps this to set os.Exit appropriately.
+//
+// Set Silent=true when the command has already emitted output (e.g. a JSON
+// report) and the harness should exit with the code without printing an
+// additional error envelope.
 type ExitError struct {
-	Code int
-	Err  error
+	Code   int
+	Err    error
+	Silent bool
 }
 
 func (e *ExitError) Error() string {
@@ -70,4 +75,19 @@ func ExitCodeFor(err error) int {
 		return exitErr.Code
 	}
 	return ExitGeneric
+}
+
+// isSilentExit reports whether the error is a deliberate silent exit (the
+// command has already written its output and only needs the exit code).
+func isSilentExit(err error) bool {
+	var exitErr *ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.Silent
+	}
+	return false
+}
+
+// silentExit returns an ExitError that exits with `code` without printing anything.
+func silentExit(code int) error {
+	return &ExitError{Code: code, Silent: true, Err: errors.New("silent")}
 }

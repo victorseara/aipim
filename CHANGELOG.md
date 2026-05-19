@@ -8,6 +8,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- `aipim launch --print-plan` — emits the resolved binary, args, env, and `binary_found` flag as JSON without exec'ing. Lets agents inspect and orchestrate before committing to a launch.
+- `aipim context` — one-call snapshot of cwd, git remote/org/email, and `gh` active account. Removes the need for agents to shell out to five tools.
+- `aipim doctor` — per-profile health check: validates agent registration, binary on PATH, profile directory writable, description set. Exit code 1 on errors; structured per-profile diagnostics on `--json`.
+- Silent-exit support (`ExitError.Silent`) so `--json` commands that already emitted a structured report don't pollute stdout with a duplicate error envelope.
+- "Agent API reference" section in README documenting every machine-readable JSON shape.
 - GitHub Actions `CI` workflow (vet + build + race tests on push and PR).
 - GitHub Actions `Release` workflow — tag-triggered goreleaser run that publishes linux/darwin × amd64/arm64 tarballs to GitHub Releases. Users can install without Go.
 - `aipim shortcuts` (alias `keys`) — prints the TUI keymap; supports `--json` and `--quiet`. The TUI help overlay and this command share a single source of truth so the docs never drift.

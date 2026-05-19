@@ -20,13 +20,16 @@ import (
 var (
 	launchProfileName string
 	launchMessage     string
+	launchPrintPlan   bool
 
 	launchCmd = &cobra.Command{
 		Use:   "launch [-- <agent args>...]",
 		Short: "Launch an agent with an isolated profile",
 		Long: "Launch an agent with an isolated profile.\n\n" +
 			"Anything after `--` is forwarded verbatim to the agent. " +
-			"Example: `aipim launch -p sgws -- -p \"my prompt\"`.",
+			"Example: `aipim launch -p sgws -- -p \"my prompt\"`.\n\n" +
+			"With --print-plan, emits the resolved binary/args/env as JSON without exec'ing. " +
+			"Use this from orchestrators or AI agents that need to inspect the launch before committing to it.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadConfigWithRecovery(true)
 			if err != nil {
@@ -41,6 +44,7 @@ var (
 func init() {
 	launchCmd.Flags().StringVarP(&launchProfileName, "profile", "p", "", "Profile name or alias to launch")
 	launchCmd.Flags().StringVarP(&launchMessage, "message", "m", "", "Initial message to pass to the agent")
+	launchCmd.Flags().BoolVar(&launchPrintPlan, "print-plan", false, "Print the resolved launch plan (binary, args, env) as JSON and exit without exec'ing")
 	_ = launchCmd.RegisterFlagCompletionFunc("profile", func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		return profileCompletions(toComplete), cobra.ShellCompDirectiveNoFileComp
 	})
@@ -76,13 +80,28 @@ func launchProfile(cfg *config.AppConfig, requestedProfile, message string, extr
 		return configErrorf("agent %q is not registered. Run `aipim agent list` to see available agents", agentName)
 	}
 
+	plan, planErr := buildLaunchPlan(selectedAgent, selectedProfile, message, extraArgs)
+
+	if launchPrintPlan {
+		// Always emit a plan, even if the binary is missing — agents need to see why.
+		encodeJSON(plan)
+		if planErr != nil {
+			return planErr
+		}
+		return nil
+	}
+
+	if planErr != nil {
+		return planErr
+	}
+
 	if selectedProfile.Path != "" {
 		if err := os.MkdirAll(selectedProfile.Path, 0o755); err != nil {
 			return configErrorf("create profile config directory %q: %w", selectedProfile.Path, err)
 		}
 	}
 
-	return execAgent(selectedAgent, selectedProfile, message, extraArgs)
+	return execPlan(plan)
 }
 
 func selectProfile(cfg *config.AppConfig, requestedProfile string) (profile.Profile, error) {
@@ -132,37 +151,74 @@ func selectProfile(cfg *config.AppConfig, requestedProfile string) (profile.Prof
 	}
 }
 
-func execAgent(selectedAgent agent.Agent, selectedProfile profile.Profile, message string, extraArgs []string) error {
-	parts, err := shlex.Split(strings.TrimSpace(selectedAgent.LaunchCmd))
-	if err != nil {
-		return configErrorf("parse launch command for agent %q: %w", selectedAgent.Name, err)
-	}
-	if len(parts) == 0 {
-		return configErrorf("agent %q has an empty launch command", selectedAgent.Name)
+// LaunchPlan is the agent-readable description of what `aipim launch` will do.
+// Stable JSON shape — see README "Agent API reference".
+type LaunchPlan struct {
+	Profile     string            `json:"profile"`
+	Agent       string            `json:"agent"`
+	Binary      string            `json:"binary"`             // resolved absolute path, empty if not found
+	BinaryFound bool              `json:"binary_found"`       // false when the agent binary is missing from PATH
+	Args        []string          `json:"args"`               // argv[0] is the binary's basename
+	Env         map[string]string `json:"env"`                // only the env vars aipim sets (not inherited)
+	ProfilePath string            `json:"profile_path"`       // resolved profile config directory (may be empty for agent-managed)
+}
+
+// buildLaunchPlan returns the launch plan and a non-nil error iff something would
+// prevent exec'ing. The plan is always populated so callers (--print-plan) can
+// emit it even on failure.
+func buildLaunchPlan(selectedAgent agent.Agent, selectedProfile profile.Profile, message string, extraArgs []string) (LaunchPlan, error) {
+	plan := LaunchPlan{
+		Profile:     selectedProfile.Name,
+		Agent:       selectedAgent.Name,
+		ProfilePath: selectedProfile.Path,
+		Env:         map[string]string{},
 	}
 
-	binaryPath, err := exec.LookPath(parts[0])
+	parts, err := shlex.Split(strings.TrimSpace(selectedAgent.LaunchCmd))
 	if err != nil {
-		return agentNotFoundErrorf(
+		return plan, configErrorf("parse launch command for agent %q: %w", selectedAgent.Name, err)
+	}
+	if len(parts) == 0 {
+		return plan, configErrorf("agent %q has an empty launch command", selectedAgent.Name)
+	}
+
+	binaryPath, lookErr := exec.LookPath(parts[0])
+	plan.Binary = binaryPath
+	plan.BinaryFound = lookErr == nil
+
+	argv0 := parts[0]
+	if plan.BinaryFound {
+		argv0 = filepath.Base(binaryPath)
+	}
+	args := append([]string{argv0}, parts[1:]...)
+	args = append(args, extraArgs...)
+	if strings.TrimSpace(message) != "" {
+		args = append(args, message)
+	}
+	plan.Args = args
+
+	if selectedProfile.Path != "" {
+		envVarName := agent.ConfigEnvVar(selectedAgent.LaunchCmd)
+		plan.Env[envVarName] = selectedProfile.Path
+	}
+
+	if !plan.BinaryFound {
+		return plan, agentNotFoundErrorf(
 			"agent binary %q not found in PATH. Install it first, or run `aipim agent add` to register a different binary",
 			parts[0],
 		)
 	}
 
-	args := append([]string{filepath.Base(binaryPath)}, parts[1:]...)
-	args = append(args, extraArgs...)
-	if strings.TrimSpace(message) != "" {
-		args = append(args, message)
-	}
+	return plan, nil
+}
 
+func execPlan(plan LaunchPlan) error {
 	env := os.Environ()
-	if selectedProfile.Path != "" {
-		envVarName := agent.ConfigEnvVar(selectedAgent.LaunchCmd)
-		env = append(env, fmt.Sprintf("%s=%s", envVarName, selectedProfile.Path))
+	for k, v := range plan.Env {
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
-
-	if err := syscall.Exec(binaryPath, args, env); err != nil {
-		return withCode(ExitGeneric, fmt.Errorf("exec %q: %w", binaryPath, err))
+	if err := syscall.Exec(plan.Binary, plan.Args, env); err != nil {
+		return withCode(ExitGeneric, fmt.Errorf("exec %q: %w", plan.Binary, err))
 	}
 	return nil
 }

@@ -39,6 +39,8 @@ var reservedIdentifiers = map[string]bool{
 	"version":    true,
 	"shortcuts":  true,
 	"keys":       true,
+	"context":    true,
+	"doctor":     true,
 }
 
 // ValidateName validates a proposed profile name against the existing profiles.

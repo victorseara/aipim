@@ -123,7 +123,11 @@ func Execute() int {
 }
 
 // emitError prints the error to stderr (plain text) or stdout (JSON envelope) depending on flags.
+// Silent exits (commands that have already emitted their own structured output) are skipped.
 func emitError(err error, code int) {
+	if isSilentExit(err) {
+		return
+	}
 	if globalJSON {
 		payload := struct {
 			Error string `json:"error"`

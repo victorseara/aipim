@@ -64,7 +64,9 @@ aipim launch -p work -- -p "verbatim agent args after --"
 | `aipim create` | Create a profile | `--name`, `--alias`, `--agent`, `--path`, `--description`, `--set-default` |
 | `aipim edit <name>` | Patch a profile | `--alias`, `--clear-alias`, `--agent`, `--path`, `--description` |
 | `aipim delete <name>` (alias `rm`) | Delete a profile | `-y, --yes`, `--keep-files` |
-| `aipim launch [-p name]` | Launch an agent with a profile | `-p, --profile`, `-m, --message` |
+| `aipim launch [-p name]` | Launch an agent with a profile | `-p, --profile`, `-m, --message`, `--print-plan` |
+| `aipim context` | Print current selection signals (cwd, git, gh) | `--json` |
+| `aipim doctor` | Validate config + environment health | `--json` |
 | `aipim agent list` | List registered agents | `--json`, `--quiet` |
 | `aipim agent add` | Register a custom agent | `--name`, `--cmd` |
 | `aipim agent rm <name>` | Remove a custom agent | — |
@@ -82,23 +84,160 @@ aipim launch -p work -- -p "verbatim agent args after --"
 | `--quiet` | Suppress non-essential stdout output. |
 | `--no-tui` | Refuse to open the TUI; fail with an exit code when interaction would be required. |
 
-## AI-agent recipes
+## Agent API reference
 
-`aipim` is designed to be safely orchestrated by AI agents. Every read command supports `--json`, every write command supports flag-driven non-interactive mode, and errors come back as a single JSON line with a numeric exit code when `--json` is set.
+`aipim` is designed to be safely orchestrated by AI agents and scripts. Every read command supports `--json`, every write command supports flag-driven non-interactive mode, errors come back as a single JSON line with a numeric `code` when `--json` is set, and the JSON shapes below are stable.
 
-**Pick the right profile from a user's prompt:**
+### Selection workflow
+
+The canonical "pick a profile for the current context" workflow:
 
 ```bash
-# Enumerate profiles with their selection hints
-aipim list --json | jq '.profiles[] | {name, alias, description}'
+# 1. Snapshot the current selection signals
+aipim context --json
 
-# Match by keyword in the description
-aipim list --json \
-  | jq -r '.profiles[] | select(.description | test("snowflake"; "i")) | .name'
+# 2. Read all profiles with their selection descriptions
+aipim list --json
 
-# Launch the chosen profile (replaces the current process via execve)
+# 3. Apply your precedence rules (folder > repo > git > gh, or your own) and pick a profile
+# 4. Inspect what the launch will do, no exec
+aipim launch -p sgws --print-plan --json
+
+# 5. Actually launch (this replaces the current process)
 aipim launch -p sgws -- -p "$USER_PROMPT"
 ```
+
+Quick keyword match without computing context yourself:
+
+```bash
+aipim list --json \
+  | jq -r '.profiles[] | select(.description | test("snowflake"; "i")) | .name'
+```
+
+### JSON schemas
+
+#### `aipim list --json`
+
+```json
+{
+  "default_agent": "Claude Code",
+  "profiles": [
+    {
+      "name": "sgws",
+      "alias": "s",
+      "agent": "claude-code-sgws",
+      "path": "",
+      "description": "SGWS client work. Pick when cwd is under ~/sgws…",
+      "created_at": "2026-05-18T10:22:32-03:00"
+    }
+  ]
+}
+```
+
+Field notes: `path` is empty when the profile is agent-managed. `alias` is omitted entirely if unset.
+
+#### `aipim get <name> --json`
+
+Returns a single profile object — the same shape as one entry of `list.profiles[]`.
+
+#### `aipim context --json`
+
+```json
+{
+  "cwd": "/Users/victorseara/workspaces/sgws/foo",
+  "git": {
+    "available": true,
+    "remote_url": "git@github.com:sgwshub/foo.git",
+    "remote_org": "sgwshub",
+    "user_email": "victor@sgws.com",
+    "user_name": "Victor Seara"
+  },
+  "gh": {
+    "available": true,
+    "active_account": "VSeara-ext_SGWS",
+    "other_accounts": ["victorseara"]
+  }
+}
+```
+
+`git.available` is `false` when cwd is outside any git working tree; the global git config (email/name) is still surfaced. `gh.available` is `false` when the `gh` CLI is not on PATH. `remote_url` / `remote_org` are omitted when there is no `origin` remote.
+
+#### `aipim launch -p <name> --print-plan` (does not exec)
+
+```json
+{
+  "profile": "sgws",
+  "agent": "claude-code-sgws",
+  "binary": "/usr/local/bin/sgws-ai",
+  "binary_found": true,
+  "args": ["sgws-ai", "--dangerously-skip-permissions"],
+  "env": {"CLAUDE_CONFIG_DIR": "/Users/.../sgws"},
+  "profile_path": ""
+}
+```
+
+`binary_found: false` is the structured way to detect a missing agent binary before committing to exec. When `--print-plan` is set, the plan is emitted on stdout even on this error so agents can see exactly what went wrong; the process exits with code `4` (`agent not found`).
+
+#### `aipim agent list --json`
+
+```json
+{
+  "default_agent": "Claude Code",
+  "agents": [
+    {"name": "Claude Code", "launch_cmd": "claude", "built_in": true},
+    {"name": "Codex",       "launch_cmd": "codex",  "built_in": true},
+    {"name": "My Custom",   "launch_cmd": "/usr/local/bin/x --fast", "built_in": false}
+  ]
+}
+```
+
+#### `aipim doctor --json`
+
+```json
+{
+  "ok": false,
+  "errors": ["profile \"broken\": agent binary \"/bin/missing\" not found in PATH"],
+  "profiles": [
+    {
+      "name": "broken",
+      "ok": false,
+      "agent": "Broken",
+      "agent_registered": true,
+      "binary_found": false,
+      "path": "/Users/.../broken",
+      "path_status": "ok",
+      "has_description": true,
+      "errors": ["agent binary \"/bin/missing\" not found in PATH"]
+    }
+  ],
+  "agents": [
+    {"name": "Claude Code", "launch_cmd": "claude", "binary_found": true}
+  ]
+}
+```
+
+`path_status` is one of `ok`, `missing`, `not-a-directory`, `not-writable`, `agent-managed`, `invalid`, or `error`. Exits with code `1` when any profile reports `ok: false`; warnings (e.g. missing description) do not change the exit code.
+
+#### `aipim shortcuts --json`
+
+```json
+{
+  "shortcuts": [
+    {"keys": "enter", "description": "launch the highlighted profile"},
+    {"keys": "?",     "description": "toggle the help overlay"}
+  ]
+}
+```
+
+#### Error envelope (when `--json` is set on any command)
+
+```json
+{"error": "profile \"nope\" does not exist. Available: sgws (s), personal. Run `aipim list` for details", "code": 2}
+```
+
+Always emitted on stdout (not stderr) so it composes with jq. The exit code matches `code`.
+
+### Write recipes
 
 **Create profiles non-interactively:**
 
