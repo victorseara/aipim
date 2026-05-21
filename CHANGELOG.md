@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.0.1] - 2026-05-21
+
 ### Added
 - `aipim launch --print-plan` — emits the resolved binary, args, env, and `binary_found` flag as JSON without exec'ing. Lets agents inspect and orchestrate before committing to a launch.
 - `aipim context` — one-call snapshot of cwd, git remote/org/email, and `gh` active account. Removes the need for agents to shell out to five tools.
